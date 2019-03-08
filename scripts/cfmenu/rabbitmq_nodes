@@ -1,0 +1,67 @@
+#!/bin/bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && cd .. &&pwd )"
+TEMP_DIR="`mktemp -d`"
+FOUNDATION="$1"
+
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+DEPLOYMENT=`bosh -e $FOUNDATION deployments | grep p-rabbit | awk '{print $NR}'`
+if [ ! -n ${DEPLOYMENT} ]
+then
+        echo "No rabbit deployments found. Exiting..."
+        rm -rf ${TEMP_DIR}
+        exit 1
+else
+        if [ `bosh -e $FOUNDATION deployments | grep p-rabbit | awk '{print $NR}' | wc -l` -gt 1 ]
+        then
+                echo "More than one deployments found for RabbitMq. no idea at this time. Choose one to proceeed...."
+                echo ""
+                bosh -e $FOUNDATION deployments | grep p-rabbit | awk '{print $NR}' 2>&1
+                echo ""
+                echo "Choose the rabbit deployment: "
+                read -e DEPLOYMENT
+        fi
+fi
+bosh -e $FOUNDATION -d $DEPLOYMENT manifest > ${TEMP_DIR}/rabbit-manifest 2> /dev/null
+bosh -e $FOUNDATION -d $DEPLOYMENT instances | grep -E 'rabbit|rmq' | awk '{print $1, $4}' > ${TEMP_DIR}/rabbit_vms 2>/dev/null
+echo ""
+
+echo "Rabbit VMs running on $DEPLOYMENT "
+echo
+cat ${TEMP_DIR}/rabbit_vms
+echo ""
+
+echo "Finding Rabbit node name to instance VMs ............................."
+for host in `cat ${TEMP_DIR}/rabbit_vms | awk '{print $1}' | grep -v broker | grep -v haproxy`
+do
+        ID=`bosh -e $FOUNDATION -d $DEPLOYMENT ssh ${host} -n "ps -ef | grep rabbit" 2>/dev/null`
+        NAME=`echo $ID  | awk -F"-sname " '{print $2}' | awk '{print $1}' | awk -F"@" '{print $2}'`
+        echo "$NAME             $host"  >> ${TEMP_DIR}/rabbit_info
+done
+
+echo ""
+cat ${TEMP_DIR}/rabbit_info
+echo ""
+
+echo "GUI Information:"
+echo "=========================================="
+echo "HA-Proxy Info"
+echo "=========================================="
+echo ""
+cat ${TEMP_DIR}/rabbit_vms | grep haproxy | awk '{print $1,$2}'
+echo ""
+echo "==========================================="
+echo "RabbitMQ Admin GUI URL: (use port 15672 )"
+echo "==========================================="
+echo ""
+cat ${TEMP_DIR}/rabbit-manifest | grep management_domain | sed 's/^[ \t]*//;s/[ \t]*$//' | sort -u
+echo ""
+echo "Credential for rabbitmq admin GUI:"
+echo ""
+cat ${TEMP_DIR}/rabbit-manifest | grep -A2 management | sort -u | grep username | sed 's/^[ \t]*//;s/[ \t]*$//'
+cat ${TEMP_DIR}/rabbit-manifest | grep -A2 management | sort -u | grep password | sed 's/^[ \t]*//;s/[ \t]*$//'
+echo ""
+echo ""
+
+rm -rf ${TEMP_DIR}

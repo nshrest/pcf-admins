@@ -1,0 +1,37 @@
+#!/bin/bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && cd .. && pwd )"
+CONFIG_DIR="${SCRIPT_DIR}/include"
+
+if [ ! -d ${CONFIG_DIR} ]
+then
+	echo "Setting up the config directory for the first time..."
+	mkdir -p ${CONFIG_DIR}
+	echo
+fi
+
+CERTS_DIR="${CONFIG_DIR}/bosh_certs"
+if [ ! -d ${CERTS_DIR} ]
+then
+        echo "Setting up the bosh certificate directory for the first time..."
+	mkdir -p ${CERTS_DIR}
+	echo
+fi
+
+echo "Enter the foundation name: "
+read FOUNDATION
+
+FILE="${CONFIG_DIR}/bosh_targets"
+CERT="${CERTS_DIR}/${FOUNDATION}.crt"
+
+if [[ -s $FILE ]] && [[ -s $CERT ]]
+then
+	if [ `bosh envs | awk '{print $NF}' | grep -w "${FOUNDATION}" | wc -l` -eq 1 ]
+	then
+		bosh -e $FOUNDATION login
+	else
+		echo "bosh alias for $FOUNDATION has not been setup yet."
+		bosh alias-env $FOUNDATION -e https://${BOSH_IP}:25555 --ca-cert="$CERT"
+		bosh -e $FOUNDATION login
+	fi
+fi

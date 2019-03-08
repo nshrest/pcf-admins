@@ -1,0 +1,125 @@
+#!/bin/bash
+
+SCRIPT_DIR="$HOME/scripts"
+TMP_DIR="/tmp/${FOUNDATION}"
+MAN_DIR="${TMP_DIR}/manifests"
+TEMP_DIR="`mktemp -d`"
+
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+if [ $# -ne 2 ]
+then
+	echo "Usage Error: $0 <FOUNDATION> <CONTAINER-IP/GUID>"
+	exit1
+else
+	FOUNDATION=$1
+	CONTAINER=$2
+fi
+
+# Cleanup temp dir/files
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+# set bosh deployment
+CF_DEPLOYMENT=`curl -s -k http://main-metadata.apps.px-prd01.cf.t-mobile.com/foundations.json  | jq  '.foundations[]' | jq --arg foundation "$FOUNDATION" '.|select (.foundry==$foundation) | .installed_products' | jq -r '.[]|select (.type=="cf") | .installation_name'`
+
+bosh -e $FOUNDATION -d ${CF_DEPLOYMENT} instances | grep diego_cell > ${TEMP_DIR}/all_diego_cells
+
+if [ `echo $CONTAINER | egrep "10.|diego_cell" | wc -l` -eq 1 ]
+then
+	if [ `grep $CONTAINER ${TEMP_DIR}/all_diego_cells | wc -l` -ne 1 ]
+	then
+		echo "Not a valid container guid: USAGE: $0 <CONTAINER GUID>"
+		rm -rf ${TEMP_DIR}
+		exit
+	fi
+fi
+
+spin()
+{
+  spinner="/|\\-/|\\-"
+  while :
+  do
+    for i in `seq 0 7`
+    do
+      echo -n "${spinner:$i:1}"
+      echo -en "\010"
+      sleep 1
+    done
+  done
+}
+
+GET_CONTAINERS () {
+	diegocell=$1
+	CELL=`echo $diegocell | awk -F"/" '{print $1"_"$2}'`	
+	bosh -e $FOUNDATION -d ${CF_DEPLOYMENT} ssh ${diegocell} -n "cd /var/vcap/jobs/rep/config/certs; curl -k -s https://localhost:1801/state --cert tls.crt --key tls.key" > ${TEMP_DIR}/${CELL}.raw 2>/dev/null
+	cat ${TEMP_DIR}/${CELL}.raw | grep "stdout | " | awk -F"stdout | " '{print $NF}' > ${TEMP_DIR}/${CELL}.format.raw
+	cat ${TEMP_DIR}/${CELL}.format.raw | jq -r .LRPs[] | jq -r ".|[.instance_guid , .process_guid , .index] | @tsv" > ${TEMP_DIR}/${CELL}.format
+	cat ${TEMP_DIR}/${CELL}.format | while read a b c
+	do
+		B=`echo $b | cut -c 1-36`
+		echo "$a $B $c" >> ${TEMP_DIR}/${CELL}.out
+	done
+	echo "DONE" >> ${TEMP_DIR}/status
+} # GET_CONTAINERS
+
+echo
+echo "Collecting container info from all the diego cells"
+
+# Start the Spinner:
+spin &
+
+# Make a note of its Process ID (PID):
+SPIN_PID=$!
+
+for diegocell in `cat ${TEMP_DIR}/all_diego_cells | awk '{print $1}'` 
+do
+	GET_CONTAINERS $diegocell &
+done
+
+COUNT=`cat ${TEMP_DIR}/all_diego_cells | grep diego_cell | wc -l`
+touch ${TEMP_DIR}/status
+
+while [ `cat ${TEMP_DIR}/status | grep DONE | wc -l` -ne "$COUNT" ]
+do
+        sleep 10
+done
+echo "Done"
+echo
+echo
+
+# Kill the spinner on any signal, including our own exit.
+trap "kill -9 $SPIN_PID" `seq 0 1`
+
+# Find container guid from all diegocell 
+FILE=`grep -R $CONTAINER ${TEMP_DIR}/*.out | awk -F: '{print $1}'`
+DIEGO=`echo $FILE | awk -F"/" '{print $NF}' | awk -F. '{print $1}' | sed 's/cell_/cell\//g'`
+
+if [ -n $DIEGO ]
+then
+	echo "container with guid as $CONTAINER found running in $DIEGO vm"
+	echo "=============================================================================================================================================================================="
+	printf "%-34s %-38s %-5s %-38s %-28s %-20s\n" "Container GUID" "Application GUID" "Index" "Application Name" "Organization" "Space"
+	echo "=============================================================================================================================================================================="
+	grep $CONTAINER $FILE | while read CG AG IN
+	do
+		cf curl "/v2/apps/${AG}" > ${TEMP_DIR}/${AG}.tmp
+		app=`cat ${TEMP_DIR}/${AG}.tmp | jq -r '.entity.name'`
+
+		SPACE_URL=`cat ${TEMP_DIR}/${AG}.tmp | jq -r '.entity.space_url'`
+		cf curl ${SPACE_URL} > ${TEMP_DIR}/${AG}.tmp.space
+		space=`cat ${TEMP_DIR}/${AG}.tmp.space | jq -r '.entity.name'`
+
+		ORG_URL=`cat ${TEMP_DIR}/${AG}.tmp.space | jq -r '.entity.organization_url'`
+		cf curl ${ORG_URL} > ${TEMP_DIR}/${AG}.tmp.org
+		org=`cat ${TEMP_DIR}/${AG}.tmp.org | jq -r '.entity.name'`
+
+		printf "%-34s %-38s %-5s %-38s %-28s %-20s\n" "$CG" "$AG" "$IN" "$app" "$org" "$space"
+	done
+else
+	echo "container with guid as $CONTAINER NOT FOUND."
+	exit
+fi
+echo
+echo
+
+rm -rf ${TEMP_DIR}

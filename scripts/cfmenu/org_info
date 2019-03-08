@@ -1,0 +1,41 @@
+#!/usr/bin/bash
+
+ORG=$1
+TEMP_DIR="`mktemp -d`"
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+cf org ${ORG} > ${TEMP_DIR}/org_info 2>/dev/null
+if [ $? -ne 0 ]
+then
+	echo "Not a valid Org name. Exiting.." > ${TEMP_DIR}/org_info
+	cat ${TEMP_DIR}/org_info
+	exit 1
+fi
+
+if [ ! -s ${TEMP_DIR}/org_info ]
+then
+	echo "May not have been logged in to proper endpoint. Please log back in first"
+fi
+echo > ${TEMP_DIR}/org_info
+echo "Org name: 	${ORG}" >> ${TEMP_DIR}/org_info
+cf org ${ORG} >> ${TEMP_DIR}/org_info 2>/dev/null
+QUOTA=`cat ${TEMP_DIR}/org_info | grep quota | awk '{print $NF}'`
+echo $QUOTA
+cf quota ${QUOTA} | grep -w "Total Memory" >> ${TEMP_DIR}/org_info
+cat ${TEMP_DIR}/org_info | grep spaces >> ${TEMP_DIR}/org_spaces
+cf org-users $ORG | grep -A 100 AUDITOR >> ${TEMP_DIR}/org_info
+echo >> ${TEMP_DIR}/org_info
+echo "Space details:" >> ${TEMP_DIR}/org_info
+echo >> ${TEMP_DIR}/org_info
+echo >> ${TEMP_DIR}/org_info
+for space in `cat ${TEMP_DIR}/org_spaces | grep spaces | grep ":" | awk -F":    " '{print $NF}' | awk '{split($0,numbers,", ")} END {for(n in numbers){ print numbers[n] }}'`
+do
+	echo "======================================" >> ${TEMP_DIR}/org_info
+	echo "SPACE:	$space" >> ${TEMP_DIR}/org_info
+	echo "======================================" >> ${TEMP_DIR}/org_info
+	cf space-users $ORG $space | grep -A1000 "SPACE DEVELOPER" >> ${TEMP_DIR}/org_info
+	echo "" >> ${TEMP_DIR}/org_info
+done
+cat ${TEMP_DIR}/org_info
+rm -rf ${TEMP_DIR}
+

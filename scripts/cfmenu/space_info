@@ -1,0 +1,33 @@
+#!/usr/bin/bash
+
+ORG=$1
+SPACE=$2
+TEMP_DIR="`mktemp -d`"
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+cf target -o ${ORG} -s ${SPACE} > /dev/null 2>&1
+if [ $? -ne 0 ]
+then
+	echo "Not a valid Org/Space name. Exiting.." 
+	rm -rf ${TEMP_DIR}
+	exit 1
+fi
+
+echo > ${TEMP_DIR}/space_info
+echo >> ${TEMP_DIR}/space_info
+cf apps >> ${TEMP_DIR}/space_info
+echo >> ${TEMP_DIR}/space_info
+echo >> ${TEMP_DIR}/space_info
+cf services >> ${TEMP_DIR}/space_info
+echo >> ${TEMP_DIR}/space_info
+echo >> ${TEMP_DIR}/space_info
+
+if [ ! -s ${TEMP_DIR}/space_info ]
+then
+	echo "May not have been logged in to proper endpoint. Please log back in first"
+	rm -rf ${TEMP_DIR}	
+	exit
+fi
+cat ${TEMP_DIR}/space_info
+
+rm -rf ${TEMP_DIR}

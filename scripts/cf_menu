@@ -1,0 +1,467 @@
+#!/bin/bash
+
+TEMP_DIR="`mktemp -d`"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+CONFIG_DIR="${SCRIPT_DIR}/include"
+CONFIG="${CONFIG_DIR}/opsman"
+
+# Cleanup temp dir/files
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+if [ ! -d ${CONFIG_DIR} ]
+then
+	echo "Setting up the config directory for the first time ... "
+	mkdir -p ${CONFIG_DIR}
+	echo
+fi
+
+if [ ! -s $CONFIG ]
+then
+	echo "Opsman config has not been setup yet. Want to try setting up the configs. "
+	echo "Continue (y|n): " 
+	while read -e answer 
+	do
+	  if [ ${answer^^} == "Y" ]
+	  then	
+		echo "Enter foundation alias: "
+		read -e foundation
+		echo "Enter Opsmanager fqdn hostname: "
+		read -e opsman
+		echo "# Foundation	Opsman_domain" >> ${CONFIG}
+		echo "$foundation	$opsman" >> ${CONFIG}
+		break
+	  elif [ ${answer^^} == "N" ]
+	  then
+		echo "Exiting...."
+		exit
+	  else
+		printf "Not a valid answer. Continue (y|n): "
+	  fi
+	done
+	echo "Completed setting up the config. "
+	echo
+	echo
+
+fi
+
+if [ $# -ne 1 ]
+then
+	printf "Foundation: \n"
+	read -e FOUNDATION
+else
+	FOUNDATION=$1
+fi
+TMP_DIR="/tmp/${FOUNDATION}"
+MAN_DIR="${TMP_DIR}/manifests"
+
+if [ ! -d ${TMP_DIR} ]
+then
+	mkdir ${TMP_DIR}
+fi
+if [ ! -d ${MAN_DIR} ]
+then
+	mkdir -p ${MAN_DIR}
+fi
+
+OPSMAN=`grep -w $FOUNDATION $CONFIG | awk '{print $2}'`
+
+if [ -s $OPSMAN ]
+then
+	echo
+        echo "Config has no info on $FOUNDATION"
+        echo "Please review the config"
+	echo "Opsman config has not been setup yet. Want to try setting up the configs. "
+        echo "Continue (y|n): "
+        while read -e answer
+        do
+          if [ ${answer^^} == "Y" ]
+          then
+		foundation=${FOUNDATION}
+                echo "Enter Opsmanager fqdn hostname: "
+                read -e opsman
+                echo "$foundation       $opsman" >> ${CONFIG}
+		OPSMAN=`grep -w $FOUNDATION $CONFIG | awk '{print $2}'`
+		break
+          elif [ ${answer^^} == "N" ]
+          then
+                echo "Exiting...."
+		rm -rf ${TEMP_DIR}
+                exit
+          else
+                printf "Not a valid answer. Continue (y|n): "
+          fi
+        done
+        echo "Completed setting up the config. "
+        echo
+        echo
+fi
+
+# login uaa:
+
+UAAC_TARGET=https://$OPSMAN/uaa
+uaac target $UAAC_TARGET --skip-ssl-validation
+
+unset password
+prompt="Enter Opsman Admin Password: "
+while IFS= read -p "$prompt" -r -s -n 1 char
+do
+    if [[ $char == $'\0' ]]
+    then
+        break
+    fi
+    prompt='*'
+    password+="$char"
+done
+uaac token owner get opsman -s '' admin -p "$password"
+
+TOKEN=`uaac context | grep access_token | awk -F": " '{print $2}'`
+
+SET_BOSH_ENV () {
+TARGET="${CONFIG_DIR}/bosh_targets"
+CERTS_DIR="${CONFIG_DIR}/bosh_certs"
+
+if [ ! -f ${TARGET} ]
+then
+	echo "# Foundation      Target Endpoints" > ${TARGET}
+fi
+if [ ! -d ${CERTS_DIR} ]
+then
+        echo "Setting up the bosh certificate directory for the first time..."
+        mkdir -p ${CERTS_DIR}
+        echo
+fi
+
+if [ ! -f ${CERTS_DIR}/${FOUNDATION}.crt ]
+then
+        echo "Setting up a bosh environment for the first time for ${FOUNDATION}"
+        OPSMAN_CLIENT_ID=
+        OPSMAN_CLIENT_SECRET=
+        OPS_MGR_USR=admin
+        om -t https://$OPSMAN --client-id "${OPSMAN_CLIENT_ID}"  --client-secret "${OPSMAN_CLIENT_SECRET}" -u "$OPS_MGR_USR"  -p "$password" bosh-env > ${TEMP_DIR}/bosh-env
+        source ${TEMP_DIR}/bosh-env
+        if [ `grep -w ${FOUNDATION} ${TARGET} | wc -l` -eq 0 ]
+        then
+                echo "${FOUNDATION}     ${BOSH_ENVIRONMENT}" >> ${TARGET}
+                printenv BOSH_CA_CERT > ${CERTS_DIR}/${FOUNDATION}.crt
+                bosh alias-env $FOUNDATION -e https://${BOSH_ENVIRONMENT}:25555 --ca-cert=${CERTS_DIR}/${FOUNDATION}.crt
+        fi
+fi
+
+bosh envs | grep -w ${FOUNDATION} > /dev/null 2>&1
+if [ $? -ne 0 ]
+then
+	echo "Setting up a bosh environment for the first time for ${FOUNDATION}"
+	OPSMAN_CLIENT_ID=
+	OPSMAN_CLIENT_SECRET=
+	OPS_MGR_USR=admin  
+	om -t https://$OPSMAN --client-id "${OPSMAN_CLIENT_ID}"  --client-secret "${OPSMAN_CLIENT_SECRET}" -u "$OPS_MGR_USR"  -p "$password" bosh-env > ${TEMP_DIR}/bosh-env
+	source ${TEMP_DIR}/bosh-env
+	if [ `grep -w ${FOUNDATION} ${TARGET} | wc -l` -eq 0 ]
+	then
+		echo "${FOUNDATION}	${BOSH_ENVIRONMENT}" >> ${TARGET}
+		printenv BOSH_CA_CERT > ${CERTS_DIR}/${FOUNDATION}.crt
+		bosh alias-env $FOUNDATION -e https://${BOSH_ENVIRONMENT}:25555 --ca-cert=${CERTS_DIR}/${FOUNDATION}.crt
+	fi
+fi
+} #SET_BOSH_ENV
+
+
+CF_LOGIN() {
+echo ""
+${SCRIPT_DIR}/cfmenu/cflogin
+echo ""
+} #CF_LOGIN
+
+BOSH_LOGIN() {
+echo ""
+${SCRIPT_DIR}/cfmenu/boshlogin
+echo ""
+} #BOSH_LOGIN
+
+MAIN_CF_LOGIN () {
+echo ""
+${SCRIPT_DIR}/cfmenu/cflogin
+echo ""
+LOGIN
+} #MAIN_CF_LOGIN
+
+MAIN_BOSH_LOGIN() {
+echo ""
+${SCRIPT_DIR}/cfmenu/boshlogin
+echo ""
+LOGIN
+} #MAIN_BOSH_LOGIN
+LOGIN() {
+while :
+do
+        echo ""
+        printf "\n\t\t Pivotal Cloud Foundry MENU: Login Menu"
+        echo ""
+        printf "\n\n\t\t1) CF Login"
+        printf "\n\n\t\t2) Bosh Login"
+        printf "\n\nSelect an Option [1-2,b,q]: \n"
+        read -e REPLY
+        case $REPLY in
+                1)  MAIN_CF_LOGIN ;;
+                2)  MAIN_BOSH_LOGIN ;;
+                b)  MAIN ;;
+                q)  printf "Exiting...\n" ; rm -rf ${TEMP_DIR}; exit ;;
+        esac
+done
+} #LOGIN
+
+CHECK_BOSH_CF() {
+# Check if bosh and cf login to the same foundation
+target=`cf target | grep endpoint | awk -F. '{print $3}'`
+
+if [ -n ${target} ]
+then
+	if [ ${target} == "$FOUNDATION}" ]
+	then
+  		bosh -e ${target} ds > /dev/null 2>&1
+		if [ $? -eq 0 ]
+  		then
+			echo "Bosh and CF login are GOOD"
+		else 
+			echo "Bosh is not logged in to ${FOUNDATION}"
+			echo "Bosh and CF login are for different foundation. Please match the logins. Exiting..."
+			BOSH_LOGIN
+		fi
+	else
+		echo "CF is not logged in to ${FOUNDATION}"
+		CF_LOGIN
+	fi
+else
+	echo "CF is not logged in to ${FOUNDATION}"
+	CF_LOGIN
+	if [ ${target} == "$FOUNDATION}" ]
+        then
+                bosh -e ${target} ds > /dev/null 2>&1
+                if [ $? -eq 0 ]
+                then
+                        echo "Bosh and CF login are GOOD"
+                else
+                        echo "Bosh is not logged in to ${FOUNDATION}"
+                        echo "Bosh and CF login are for different foundation. Please match the logins. Exiting..."
+                        BOSH_LOGIN
+                fi
+        else
+                echo "CF is not logged in to ${FOUNDATION}"
+                CF_LOGIN
+        fi
+fi
+echo
+} #CHECK_BOSH_CF
+
+FIND_APP() {
+  while :
+  do
+	echo ""
+	echo "Enter the apps name like: "
+	read -e app
+	if [ -f ${TMP_DIR}/all_routes ]
+	then
+		if [ `grep ${app} ${TMP_DIR}/all_routes | wc -l` -eq 0 ]
+		then
+			echo
+			echo "No App named $app found running."
+			echo "please retry...."
+			echo
+			echo
+			SHOW_ALL_APPS
+		else
+			echo ""
+			echo "###########################################################################"
+			echo "Below are the running apps as per the search ($app)"
+			echo "###########################################################################"
+			echo
+			printf "%-50s %-38s %-30s\n" "application fqdn" "guid" "app_name"
+			for i in `cat ${TMP_DIR}/all_routes | grep ".com" | grep -vw "component"  | awk -F'"' '{print $2}' | grep -i "$app"`
+			do
+				app=`echo $i | awk -F. '{print $NR}'`
+				GUID=$(cf curl "/v2/apps?q=name:${app}" | jq -r '.resources[].metadata.guid')
+				printf "%-50s %-38s %-30s\n" "$i" "$GUID" "$app"
+			done
+			echo ""
+			SHOW_ALL_APPS
+		fi
+	else
+		echo "Not Available at this time. Please re-try again later"
+		echo "Error Code:	ERR_RTR"
+		rm -rf ${TEMP_DIR}
+		exit 1
+	fi
+  done
+} #FIND_APP
+
+INSTANCES_INFO () {
+        echo ""
+        echo "Enter the app name: "
+        read -e app
+        APP=`echo $app | awk -F. '{print $1}'`
+        ${SCRIPT_DIR}/cfmenu/cf-instances ${APP}
+	echo
+	SHOW_ALL_APPS
+}
+
+APP_INFO(){
+        echo ""
+        echo "Enter the app name: "
+        read -e app
+	APP=`echo $app | awk -F. '{print $1}'`
+        ${SCRIPT_DIR}/cfmenu/app_info ${APP} > ${TEMP_DIR}/app_info
+        cat ${TEMP_DIR}/app_info
+        echo ""
+	SHOW_ALL_APPS
+} #APP_INFO
+
+
+SHOW_ALL_APPS() {
+  while : 
+  do
+	printf "\n\t\t Pivotal Cloud Foundry MENU - Applications from ${FOUNDATION}"
+	printf "\n\n\t\t1) Find Apps (doesnot have to be accurate for this search)"
+	printf "\n\n\t\t2) Instances Info"
+	printf "\n\n\t\t3) App Info"
+	printf "\n\nSelect an Option [1-3,b,q]: \n"
+	read -e REPLY
+	case $REPLY in
+		1) FIND_APP ;;
+		2) INSTANCES_INFO ;;
+		3) APP_INFO ;;
+		b) MAIN ;;
+		q) printf "Exiting...\n" ; rm -rf ${TEMP_DIR}; exit 0 ;;
+	esac
+  done
+} #SHOW_ALL_APPS
+
+RABBIT_NODES() {
+        ${SCRIPT_DIR}/cfmenu/rabbitmq_nodes ${FOUNDATION} 
+        RABBIT
+} #RABBIT_NODES
+
+RABBIT_VHOST() {
+        echo ""
+        echo "Enter the vhost GUID: "
+        read -e vhost
+	${SCRIPT_DIR}/cfmenu/rabbitmq_vhost ${vhost} > ${TEMP_DIR}/rabbit_queues
+	cat ${TEMP_DIR}/rabbit_queues
+	echo ""
+	RABBIT
+} #RABBIT_VHOST
+
+RABBIT() {
+while : 
+do
+        printf "\n\t\t Pivotal Cloud Foundry MENU - RabbitMQ Administration"
+        printf "\n\n\t\t1) Nodes Info"
+        printf "\n\n\t\t2) Vhost Info"
+        printf "\n\nSelect an Option [1-2,b,q]: \n"
+        read -e REPLY
+        case $REPLY in
+                1) RABBIT_NODES ;;
+                2) RABBIT_VHOST ;;
+                b) MAIN ;;
+                q) printf "Exiting...\n" ; rm -rf ${TEMP_DIR};exit 0 ;;
+        esac
+done
+} #RABBIT
+
+ORG_INFO() {
+        echo ""
+        echo "Enter the Org Name: "
+        read -e org
+        ${SCRIPT_DIR}/cfmenu/org_info ${org} > ${TEMP_DIR}/org_info
+        cat ${TEMP_DIR}/org_info
+        echo ""
+	ORGS_SPACES
+} #ORG_INFO
+
+SPACE_INFO () {
+        echo ""
+        echo "Enter the Org Name: "
+        read -e org
+        echo "Enter the Space Name: "
+        read -e space
+	${SCRIPT_DIR}/cfmenu/space_info ${org} ${space} > ${TEMP_DIR}/space_info
+	cat ${TEMP_DIR}/space_info 
+        echo ""
+        ORGS_SPACES
+} #SPACE_INFO
+
+ORGS_SPACES(){
+  while : 
+  do
+        printf "\n\t\t Pivotal Cloud Foundry MENU - Orgs and Spaces from ${Foundations}"
+        printf "\n\n\t\t1) Org Info"
+        printf "\n\n\t\t2) Space Info"
+        printf "\n\nSelect an Option [1-2,b,q]: \n"
+        read -e REPLY
+        case $REPLY in
+                1) ORG_INFO ;;
+                2) SPACE_INFO ;;
+                b) MAIN ;;
+                q) printf "Exiting...\n" ; rm -rf ${TEMP_DIR}; exit 0 ;;
+        esac
+  done
+} #ORGS_SPACES
+
+DIEGO_INFO() {
+	echo ""
+	echo "Enter the Diego Cell IP or Name: "
+	read -e diego 
+	${SCRIPT_DIR}/cfmenu/diegocell_info $FOUNDATION ${diego}
+	echo ""
+	MAIN
+} #DIEGO_INFO
+
+FIND_CONTAINER () {
+	echo "Enter the container GUID: "
+	read -e container
+	${SCRIPT_DIR}/cfmenu/find_container $FOUNDATION ${container}
+	echo ""
+	MAIN
+} #FIND_CONTAINER
+
+MAIN () {
+while :
+do
+	echo ""
+	printf "\n\t\t Pivotal Cloud Foundry MENU"
+	printf "\n\n\t\t1) Login"
+	printf "\n\n\t\t2) Orgs and Spaces"
+	printf "\n\n\t\t3) Applications Info"
+	printf "\n\n\t\t4) Find Container from a GUID" 
+	printf "\n\n\t\t5) Diego Cell - Containers Info"
+	printf "\n\n\t\t6) RabbitMQ Administartion"
+	printf "\n\nSelect an Option [0-6,q]: \n"
+	read -e REPLY
+	case $REPLY in
+	   1) LOGIN ;;
+	   2) ORGS_SPACES ;;
+	   3) SHOW_ALL_APPS ;;
+	   4) FIND_CONTAINER ;;
+	   5) DIEGO_INFO ;;
+	   6) RABBIT ;;
+	   q) printf "Exiting...\n" ; rm -rf ${TEMP_DIR}; exit 0 ;;
+	esac
+done
+} #MAIN
+
+###########################################################
+# Menu starts here!
+###########################################################
+
+SET_BOSH_ENV ${FOUNDATION}
+CHECK_BOSH_CF
+
+echo "Collecting routes info: "
+echo
+DEPLOYMENT=`bosh -e $FOUNDATION ds | grep ^cf- | awk '{print $NR}'`
+ROUTER_PASSWORD=`curl -s "https://$OPSMAN/api/v0/deployed/products/$DEPLOYMENT/variables?name=router-status-credentials" -X GET -H "Authorization: Bearer $TOKEN" | jq .[] | jq -r '.|(.password)' 2>/dev/null`
+R_USER="router_status"
+R_PASS="$ROUTER_PASSWORD"
+ROUTER_IP=`bosh -e $FOUNDATION -d $DEPLOYMENT instances | grep router | head -1 | awk '{print $NF}'`
+curl "http://${R_USER}:${R_PASS}@${ROUTER_IP}:8080/routes" | jq . > ${TMP_DIR}/all_routes
+
+MAIN

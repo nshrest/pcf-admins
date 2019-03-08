@@ -1,0 +1,48 @@
+#!/bin/bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && cd .. &&pwd )"
+TEMP_DIR="`mktemp -d`"
+
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+APPS="$1"
+if [ $# -ne 1 ]
+then
+	echo "Usage Error: pass an apps name"
+	echo "$0  <APP_NAME>"
+	exit 1
+fi
+
+APP=`echo $APPS | awk -F. '{print $1}'`
+cf curl "/v2/apps?q=name:${APP}" | jq -r '.resources[]' > ${TEMP_DIR}/app_info
+STATE=$(cat ${TEMP_DIR}/app_info | jq -r '.entity.state')
+BUILDPACK=$(cat ${TEMP_DIR}/app_info | jq -r '.entity.buildpack')
+GUIDS=$(cat ${TEMP_DIR}/app_info | jq -r '.metadata.guid')
+SPACE_URL=$(cat ${TEMP_DIR}/app_info | jq -r '.entity.space_url')
+cf curl ${SPACE_URL} > ${TEMP_DIR}/space_info
+SPACE=$(cat ${TEMP_DIR}/space_info | jq -r '.entity.name')
+ORG_URL=$(cat ${TEMP_DIR}/space_info | jq -r '.entity.organization_url')
+cf curl ${ORG_URL} > ${TEMP_DIR}/org_info
+ORG=$(cat ${TEMP_DIR}/org_info | jq -r '.entity.name')
+        
+echo > ${TEMP_DIR}/app.out
+echo >> ${TEMP_DIR}/app.out
+echo "======================================="  >> ${TEMP_DIR}/app.out
+echo "App: $APPS info" >> ${TEMP_DIR}/app.out
+echo "======================================="  >> ${TEMP_DIR}/app.out
+echo >> ${TEMP_DIR}/app.out
+printf "%-20s %-20s %-20s %-38s %-24s %-10s\n" "Apps Name" "Org Name" "Space Name" "App GUID" "Buildpack" "State" >> ${TEMP_DIR}/app.out
+printf "%-20s %-20s %-20s %-38s %-24s %-10s\n" "$APPS" "$ORG" "$SPACE" "$GUIDS" "$BUILDPACK" "$STATE" >> ${TEMP_DIR}/app.out
+echo  >> ${TEMP_DIR}/app.out
+cf target -o $ORG -s $SPACE >> ${TEMP_DIR}/app.out
+cf app $APPS >> ${TEMP_DIR}/app.out
+echo  >> ${TEMP_DIR}/app.out
+echo "======================================="  >> ${TEMP_DIR}/app.out
+echo "Services bind to ${APPS}:" >> ${TEMP_DIR}/app.out
+echo "======================================="  >> ${TEMP_DIR}/app.out
+echo >> ${TEMP_DIR}/app.out
+cf services | grep -v ^${APPS} | grep ${APPS} >> ${TEMP_DIR}/app.out
+echo >> ${TEMP_DIR}/app.out
+cat  ${TEMP_DIR}/app.out
+
+rm -rf ${TEMP_DIR}

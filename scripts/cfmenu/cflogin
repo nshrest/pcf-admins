@@ -1,0 +1,65 @@
+#!/bin/bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && cd .. &&pwd )"
+CONFIG_DIR="${SCRIPT_DIR}/include"
+
+if [ ! -d ${CONFIG_DIR} ]
+then
+	echo "Setting up the config directory for the first time..."
+	mkdir -p ${CONFIG_DIR}
+	echo
+fi
+
+FILE="${CONFIG_DIR}/api_endpoints"
+
+if [ ! -f ${CONFIG_DIR}/api_endpoints ]
+then
+	echo "Setting up the config for cf login...."
+	echo
+        echo "Enter foundation alias: "
+        read -e foundation
+        echo "Enter api endpoint url: "
+        read -e api
+        echo "# Foundation      API_Endpoint" >> ${FILE}
+        echo "$foundation       $api" >> ${FILE}
+	echo "Done" 
+	echo
+	echo
+fi
+
+
+echo "Enter the foundation name: "
+read -e FOUNDATION
+
+if [[ `cat ${FILE} | grep -w ${FOUNDATION} | wc -l` -eq 0 ]]
+then
+	echo "not a valid foundation name. Update ${FILE} file to include this new foundation!"
+        echo "api-endpoint config has not been setup yet. Want to try setting up the configs. "
+        echo "Continue (y|n): "
+        while read -e answer
+        do
+          if [ ${answer^^} == "Y" ]
+          then
+                foundation=${FOUNDATION}
+                echo "Enter api endpoint url: "
+                read -e api
+                echo "$foundation 	$api" >> ${FILE}
+		break
+          elif [ ${answer^^} == "N" ]
+          then
+                echo "Exiting...."
+                exit
+          else
+                printf "Not a valid answer. Continue (y|n): "
+          fi
+        done
+        echo "Completed setting up the config. "
+        echo
+        echo
+fi
+echo "Enter user ID:"
+read -e ID
+
+ENDPT=`cat ${FILE} | grep -w ${FOUNDATION} | awk '{print $NF}'`
+set +e
+cf login -a ${ENDPT} -u ${ID} 2>/dev/null

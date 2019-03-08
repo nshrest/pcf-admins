@@ -1,0 +1,86 @@
+#!/bin/bash
+
+if [ $# -ne 2 ]
+then
+	echo "Usage Error: $0 <FOUDNATION> <DIEGO_CELL>"
+	exit 1
+else
+	FOUNDATION="$1"
+	DIEGO="$2"
+fi
+TMP_DIR="/tmp/${FOUNDATION}"
+MAN_DIR="${TMP_DIR}/manifests"
+SCRIPT_DIR="$HOME/scripts"
+TEMP_DIR="`mktemp -d`"
+
+# Cleanup temp dir/files
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+bosh -e $FOUNDATION ds > /dev/null 2>&1
+if [[ $? -ne 0 ]]
+then
+	echo "Please log into a bosh instance first."
+	echo "./bosh_login <foundation>"
+	exit 1
+fi
+
+# set bosh deployment
+CF_DEPLOYMENT=`curl -s -k http://main-metadata.apps.px-prd01.cf.t-mobile.com/foundations.json  | jq  '.foundations[]' | jq --arg foundation "$FOUNDATION" '.|select (.foundry==$foundation) | .installed_products' | jq -r '.[]|select (.type=="cf") | .installation_name'`
+
+bosh -e $FOUNDATION -d ${CF_DEPLOYMENT} instances | grep diego_cell > ${TEMP_DIR}/all_diego_cells
+
+if [ `echo ${DIEGO} | grep diego | wc -l` -gt 0 ]
+then
+	DIEGO=`grep -w "${DIEGO}" ${TEMP_DIR}/all_diego_cells | awk '{print $NF}' | sed 's/^[ \t]*//;s/[ \t]*$//'`
+	if [ ! -n ${DIEGO} ]
+	then
+		echo "Not a valid diego_cell. Exiting..."
+		rm -rf ${TEMP_DIR}
+		exit 1
+	fi
+else
+	if [ `grep $DIEGO ${TEMP_DIR}/all_diego_cells | wc -l` -eq 0 ]
+	then
+		echo "Not a valid deigo_cell IP. Exiting..."
+		rm -rf ${TEMP_DIR}
+		exit 1
+	fi
+fi
+
+DIEGO_HOST=`cat ${TEMP_DIR}/all_diego_cells | grep -w "$DIEGO" | awk '{print $1}'`
+
+# get Router info for all the records to this Diego cell	
+cat ${TMP_DIR}/all_routes | egrep "mobile|${DIEGO}" | grep -B1 ${DIEGO}  | egrep 'mobile|address' | awk -F"[" '{print $1}' | awk -F"," '{print $1}' > ${TEMP_DIR}/all_containers
+
+# get the diego cell state
+bosh -e $FOUNDATION -d ${CF_DEPLOYMENT} ssh ${DIEGO_HOST} -n "cd /var/vcap/jobs/rep/config/certs; curl -k -s https://localhost:1801/state --cert tls.crt --key tls.key" > ${TEMP_DIR}/diego_state_raw 2>/dev/null
+cat ${TEMP_DIR}/diego_state_raw | grep "stdout | " | awk -F"stdout | " '{print $NF}' > ${TEMP_DIR}/diego_state
+
+# Generate a file with all the containers guid with app guid and instance id
+cat ${TEMP_DIR}/diego_state | jq -r .LRPs[] | jq -r ".|[.instance_guid , .process_guid , .index] | @tsv" > ${TEMP_DIR}/diego_containers_raw
+
+cat ${TEMP_DIR}/diego_containers_raw | while read a b c 
+do
+	B=`echo $b | cut -c 1-36`
+	echo "$a $B $c" >> ${TEMP_DIR}/diego_containers
+done 
+
+# format and map to its org and space
+echo "==============================================================================================================================================================================" > ${TEMP_DIR}/final_diego.out
+printf "%-34s %-38s %-5s %-38s %-28s %-20s\n" "Container GUID" "Application GUID" "Index" "Application Name" "Organization" "Space" >> ${TEMP_DIR}/final_diego.out
+echo "==============================================================================================================================================================================" >> ${TEMP_DIR}/final_diego.out
+cat ${TEMP_DIR}/diego_containers | grep -v ^$ | while read CG AG IN
+do
+	app=`cat ${TMP_DIR}/foundrystats.json | jq .[] | jq --arg GUID "$AG" '.|select(.guid==$GUID)' | jq -r .name`
+	org=`cat ${TMP_DIR}/foundrystats.json | jq .[] | jq --arg GUID "$AG" '.|select(.guid==$GUID)' | jq -r .org_name`
+	space=`cat ${TMP_DIR}/foundrystats.json | jq .[] | jq --arg GUID "$AG" '.|select(.guid==$GUID)' | jq -r .space_name`
+	printf "%-34s %-38s %-5s %-38s %-28s %-20s\n" "$CG" "$AG" "$IN" "$app" "$org" "$space" >> ${TEMP_DIR}/final_diego.out
+done
+
+echo "All containers within ${DIEGO} diego cell with application instances"
+echo
+
+cat ${TEMP_DIR}/final_diego.out
+echo
+echo
+rm -rf ${TEMP_DIR}

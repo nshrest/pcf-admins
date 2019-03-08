@@ -1,0 +1,42 @@
+#!/bin/bash
+
+VHOST=$1
+
+if [ $# -ne 1 ]
+then
+	echo "usage ERROR: $0 <VHOST_GIUD>"
+	exit 1
+fi
+
+echo
+echo 
+echo "Finding vhost info ...."
+
+cf curl "/v2/service_instances/${VHOST}" > /dev/null 2>&1
+if [ $? -ne 0 ]
+then
+	echo "Not a valid rabbit vhost ID. Exiting..."
+	exit 1
+else
+	if [ `cf curl "/v2/service_instances/${VHOST}" | grep -i error | wc -l` -gt 0 ]
+	then
+		echo "Not a valid rabbit vhost ID. Exiting..."
+		exit 1
+	fi
+	INST_NAME=`cf curl "/v2/service_instances/${VHOST}" | jq -r '.|.entity["name"]'`
+	SPACE_URL=`cf curl "/v2/service_instances/${VHOST}" | jq -r '.|.entity["space_url"]'`
+	SPACE=`cf curl ${SPACE_URL} | jq -r '.|.entity["name"]'`
+	ORG_URL=`cf curl ${SPACE_URL} | jq -r '.|.entity["organization_url"]'`
+	ORG=`cf curl ${ORG_URL} | jq -r '.|.entity["name"]'`
+	echo ""
+	echo "$VHOST is a guid for service instance: ${INST_NAME}"
+	echo ""
+	echo "Service instance name: ${INST_NAME}"
+	echo "Org: $ORG"
+	echo "Space: $SPACE"
+	echo "Bind to below Apps:"
+	cf target -o $ORG -s $SPACE > /dev/null 2>&1
+	cf services 
+	echo ""
+fi
+
