@@ -1,0 +1,25 @@
+#!/bin/bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && cd .. &&pwd )"
+TEMP_DIR="`mktemp -d`"
+trap 'rm -rf ${TEMP_DIR}; exit' SIGHUP SIGINT SIGKILL SIGTERM
+
+FOUNDATION=$1
+TMP_DIR="/tmp/${FOUNDATION}"
+
+# Finding product versions
+jq -r '.[]| [.type, .installation_name, .product_version] | @tsv' < ${TMP_DIR}/foundation.json > ${TEMP_DIR}/all_products
+
+# Format output
+printf "\n%-30s %-55s %-20s\n" "Product Slugs" "Deployments Name" "Product Version" > ${TEMP_DIR}/foundation_info.out
+echo >> ${TEMP_DIR}/foundation_info.out
+cat ${TEMP_DIR}/all_products | while read slug deployment version
+do
+	printf "%-30s %-55s %-20s\n" "${slug}" "${deployment}" "$version" >> ${TEMP_DIR}/foundation_info.out
+done
+echo >> ${TEMP_DIR}/foundation_info.out
+
+cat ${TEMP_DIR}/foundation_info.out
+	
+
+

@@ -2,6 +2,7 @@
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && cd .. && pwd )"
 CONFIG_DIR="${SCRIPT_DIR}/include"
+FOUNDATION="$1"
 
 if [ ! -d ${CONFIG_DIR} ]
 then
@@ -18,8 +19,16 @@ then
 	echo
 fi
 
-echo "Enter the foundation name: "
-read FOUNDATION
+# Check if already logged in
+if [`bosh envs | grep -w "${FOUNDATION} | wc -l` -gt 0] 
+then
+	bosh -e ${FOUNDATION} ds > /dev/null 2>&1
+	if [ $? -eq 0 ]
+	then
+		echo "BOsh login to ${FOUNDATION} is good."
+		exit
+	fi
+fi
 
 FILE="${CONFIG_DIR}/bosh_targets"
 CERT="${CERTS_DIR}/${FOUNDATION}.crt"

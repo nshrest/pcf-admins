@@ -2,6 +2,7 @@
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && cd .. &&pwd )"
 CONFIG_DIR="${SCRIPT_DIR}/include"
+FOUNDATION="$1"
 
 if [ ! -d ${CONFIG_DIR} ]
 then
@@ -27,9 +28,20 @@ then
 	echo
 fi
 
-
-echo "Enter the foundation name: "
-read -e FOUNDATION
+# Check if already logged in
+cf target > /dev/null 2>&1
+if [ $? -eq 0 ]
+then
+	if [ `cf target | grep endpoint | awk -F. '{print $3}'` == "${FOUNDATION}" ]
+	then
+		cf target -o sys-tmo -s production > /dev/null 2>&1
+		if [ $? -eq 0 ]
+		then
+			echo "CF login to ${FOUNDATION} is good."
+			exit
+		fi
+	fi
+fi
 
 if [[ `cat ${FILE} | grep -w ${FOUNDATION} | wc -l` -eq 0 ]]
 then
@@ -61,5 +73,4 @@ echo "Enter user ID:"
 read -e ID
 
 ENDPT=`cat ${FILE} | grep -w ${FOUNDATION} | awk '{print $NF}'`
-set +e
-cf login -a ${ENDPT} -u ${ID} 2>/dev/null
+cf login -a ${ENDPT} -u ${ID} -o system -s system 2>/dev/null
