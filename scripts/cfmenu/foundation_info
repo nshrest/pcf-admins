@@ -20,6 +20,7 @@ done
 echo >> ${TEMP_DIR}/foundation_info.out
 
 cat ${TEMP_DIR}/foundation_info.out
-	
+
+rm -rf ${TEMP_DIR}	
 
 

@@ -20,12 +20,12 @@ then
 fi
 
 # Check if already logged in
-if [`bosh envs | grep -w "${FOUNDATION} | wc -l` -gt 0] 
+if [ `bosh envs | grep -w "${FOUNDATION}" | wc -l` -gt 0 ] 
 then
 	bosh -e ${FOUNDATION} ds > /dev/null 2>&1
 	if [ $? -eq 0 ]
 	then
-		echo "BOsh login to ${FOUNDATION} is good."
+		echo "Bosh login to ${FOUNDATION} is good."
 		exit
 	fi
 fi

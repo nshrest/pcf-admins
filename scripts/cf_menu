@@ -21,7 +21,8 @@ then
 	echo "Continue (y|n): " 
 	while read -e answer 
 	do
-	  if [ ${answer^^} == "Y" ]
+	  ANSWER=`echo ${answer} | tr 'a-z' 'A-Z'`
+	  if [ ${ANSWER} == "Y" ]
 	  then	
 		echo "Enter foundation alias: "
 		read -e foundation
@@ -30,7 +31,7 @@ then
 		echo "# Foundation	Opsman_domain" >> ${CONFIG}
 		echo "$foundation	$opsman" >> ${CONFIG}
 		break
-	  elif [ ${answer^^} == "N" ]
+	  elif [ ${ANSWER} == "N" ]
 	  then
 		echo "Exiting...."
 		exit
@@ -74,7 +75,8 @@ then
         echo "Continue (y|n): "
         while read -e answer
         do
-          if [ ${answer^^} == "Y" ]
+	  ANSWER=`echo ${answer} | tr 'a-z' 'A-Z'`
+          if [ ${ANSWER} == "Y" ]
           then
 		foundation=${FOUNDATION}
                 echo "Enter Opsmanager fqdn hostname: "
@@ -82,7 +84,7 @@ then
                 echo "$foundation       $opsman" >> ${CONFIG}
 		OPSMAN=`grep -w $FOUNDATION $CONFIG | awk '{print $2}'`
 		break
-          elif [ ${answer^^} == "N" ]
+          elif [ ${ANSWER} == "N" ]
           then
                 echo "Exiting...."
 		rm -rf ${TEMP_DIR}
@@ -218,11 +220,13 @@ do
         echo ""
         printf "\n\n\t\t1) Version Info"
         printf "\n\n\t\t2) Check max-in-flights"
-        printf "\n\nSelect an Option [1-2,b,q]: \n"
+        printf "\n\n\t\t3) Set max-in-flights"
+        printf "\n\nSelect an Option [1-3,b,q]: \n"
         read -e REPLY
         case $REPLY in
                 1)  VERSION_INFO ;;
                 2)  CHECK_MAX_IN_FLIGHTS ;;
+                3)  SET_MAX_IN_FLIGHT ;;
                 b)  MAIN ;;
                 q)  printf "Exiting...\n" ; rm -rf ${TEMP_DIR}; exit ;;
         esac
@@ -454,16 +458,32 @@ curl -s "https://$OPSMAN/api/v0/staged/products/${DEPLOYMENT}/max_in_flight" -X 
 cat ${TMP_DIR}/cf-max-in-flights.json | sed -e 's/[{}]/''/g' | awk -v k="text" '{n=split($0,a,","); for (i=1; i<=n; i++) print a[i]}' | sed '/^$/d' | sed -e 's/^[ \t]*//' > ${TMP_DIR}/cf-max-in-flights
 
 # Format pretty and output
-printf "%-35s %15s\n" "Jobs" "Max-in-flight"
+printf "%-35s %-15s\n" "Jobs" "Max-in-flight"
 echo
 cat ${TMP_DIR}/cf-max-in-flights | while read line
 do
 	job=`echo $line | awk -F: '{print $1}' | awk -F'"' '{print $2}' | awk -F"-" '{print $1}'`
 	count=`echo $line | awk -F: '{print $2}'`
-	printf "%-35s %15s\n" "$job" "$count" 
+	printf "%-35s %-15s\n" "$job" "$count" 
 done
 echo
 } #CHECK_MAX_IN_FLIGHTS
+
+SET_MAX_IN_FLIGHT () {
+if [ ! -f ${TMP_DIR}/cf-max-in-flights ]
+then
+	curl -s "https://$OPSMAN/api/v0/staged/products/${DEPLOYMENT}/max_in_flight" -X GET -H "Authorization: Bearer $TOKEN" | jq .max_in_flight > ${TMP_DIR}/cf-max-in-flights.json
+	cat ${TMP_DIR}/cf-max-in-flights.json | sed -e 's/[{}]/''/g' | awk -v k="text" '{n=split($0,a,","); for (i=1; i<=n; i++) print a[i]}' | sed '/^$/d' | sed -e 's/^[ \t]*//' > ${TMP_DIR}/cf-max-in-flights
+fi
+	echo "Enter the job name: "
+	read -e job
+	echo "Enter number: "
+	read -e num
+	JOB=`grep -w ${job} ${TMP_DIR}/cf-max-in-flights | awk -F'"' '{print $2}'`
+	DATA=`echo "{\"max_in_flight\":{\"${JOB}\": ${num}}}"`
+	curl -s "https://$OPSMAN/api/v0/staged/products/${DEPLOYMENT}/max_in_flight" -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "${DATA}"
+	CHECK_MAX_IN_FLIGHTS
+} #SET_MAX_IN_FLIGHT
 
 MAIN () {
 while :
