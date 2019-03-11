@@ -71,9 +71,17 @@ printf "%-34s %-38s %-5s %-38s %-28s %-20s\n" "Container GUID" "Application GUID
 echo "==============================================================================================================================================================================" >> ${TEMP_DIR}/final_diego.out
 cat ${TEMP_DIR}/diego_containers | grep -v ^$ | while read CG AG IN
 do
-	app=`cat ${TMP_DIR}/foundrystats.json | jq .[] | jq --arg GUID "$AG" '.|select(.guid==$GUID)' | jq -r .name`
-	org=`cat ${TMP_DIR}/foundrystats.json | jq .[] | jq --arg GUID "$AG" '.|select(.guid==$GUID)' | jq -r .org_name`
-	space=`cat ${TMP_DIR}/foundrystats.json | jq .[] | jq --arg GUID "$AG" '.|select(.guid==$GUID)' | jq -r .space_name`
+	cf curl "/v2/apps/${AG}" > ${TEMP_DIR}/${AG}.tmp
+	app=`cat ${TEMP_DIR}/${AG}.tmp | jq -r '.entity.name'`
+
+	SPACE_URL=`cat ${TEMP_DIR}/${AG}.tmp | jq -r '.entity.space_url'`
+	cf curl ${SPACE_URL} > ${TEMP_DIR}/${AG}.tmp.space
+	space=`cat ${TEMP_DIR}/${AG}.tmp.space | jq -r '.entity.name'`
+
+	ORG_URL=`cat ${TEMP_DIR}/${AG}.tmp.space | jq -r '.entity.organization_url'`
+	cf curl ${ORG_URL} > ${TEMP_DIR}/${AG}.tmp.org
+	org=`cat ${TEMP_DIR}/${AG}.tmp.org | jq -r '.entity.name'`
+
 	printf "%-34s %-38s %-5s %-38s %-28s %-20s\n" "$CG" "$AG" "$IN" "$app" "$org" "$space" >> ${TEMP_DIR}/final_diego.out
 done
 

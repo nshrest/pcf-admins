@@ -93,10 +93,11 @@ trap "kill -9 $SPIN_PID" `seq 0 1`
 # Find container guid from all diegocell 
 FILE=`grep -R $CONTAINER ${TEMP_DIR}/*.out | awk -F: '{print $1}'`
 DIEGO=`echo $FILE | awk -F"/" '{print $NF}' | awk -F. '{print $1}' | sed 's/cell_/cell\//g'`
+DIEGO_IP=`grep ${DIEGO} ${TEMP_DIR}/all_diego_cells | awk '{print $NF}'`
 
 if [ -n $DIEGO ]
 then
-	echo "container with guid as $CONTAINER found running in $DIEGO vm"
+	echo "container with guid as $CONTAINER found running in $DIEGO vm (IP: ${DIEGO_IP})"
 	echo "=============================================================================================================================================================================="
 	printf "%-34s %-38s %-5s %-38s %-28s %-20s\n" "Container GUID" "Application GUID" "Index" "Application Name" "Organization" "Space"
 	echo "=============================================================================================================================================================================="
