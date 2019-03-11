@@ -235,48 +235,37 @@ FOUNDATION_MAIN() {
 	done
 } #FOUNDATION_MAIN
 
-CHECK_BOSH_CF() {
-# Check if bosh and cf login to the same foundation
-	target=`cf target | grep endpoint | awk -F. '{print $3}'`
+CHECK_CF_LOGIN () {
+# Check if cf login to the same foundation
+        target=`cf target | grep endpoint | awk -F. '{print $3}'`
 
-	if [ -n ${target} ]
+        if [ -n ${target} ]
+        then
+                if [[ "${target}" == "${FOUNDATION}" ]]
+                then
+                        echo "CF logged in to ${FOUNDATION}"
+                else
+                        echo "CF is not logged in to ${FOUNDATION}"
+                        CF_LOGIN
+                fi
+        else
+                echo "CF is not logged in to ${FOUNDATION}"
+                CF_LOGIN
+        fi
+} #CHECK_CF_LOGIN
+
+CHECK_BOSH_LOGIN () {
+# Check if bosh login to the same foundation
+	bosh -e ${FOUNDATION} ds > /dev/null 2>&1
+	if [ $? -eq 0 ]
 	then
-		if [[ "${target}" == "${FOUNDATION}" ]]
-		then
-  			bosh -e ${target} ds > /dev/null 2>&1
-			if [ $? -eq 0 ]
-  			then
-				echo "Bosh and CF login are GOOD"
-			else 
-				echo "Bosh is not logged in to ${FOUNDATION}"
-				echo "Bosh and CF login are for different foundation. Please match the logins. Exiting..."
-				BOSH_LOGIN
-			fi
-		else
-			echo "CF is not logged in to ${FOUNDATION}"
-			CF_LOGIN
-		fi
+		echo "Bosh logged in to ${FOUNDATION}"
 	else
-		echo "CF is not logged in to ${FOUNDATION}"
-		CF_LOGIN
-		if [[ ${target} == "${FOUNDATION}" ]]
-        	then
-                	bosh -e ${target} ds > /dev/null 2>&1
-                	if [ $? -eq 0 ]
-                	then
-                        	echo "Bosh and CF login are GOOD"
-                	else
-                        	echo "Bosh is not logged in to ${FOUNDATION}"
-                        	echo "Bosh and CF login are for different foundation. Please match the logins. Exiting..."
-                        	BOSH_LOGIN
-                	fi
-        	else
-                	echo "CF is not logged in to ${FOUNDATION}"
-                	CF_LOGIN
-        	fi
+		echo "Bosh is not logged in to ${FOUNDATION}"
+		BOSH_LOGIN
 	fi
-	echo
-} #CHECK_BOSH_CF
+        echo
+} #CHECK_BOSH_LOGIN
 
 FIND_APP() {
   while :
@@ -539,7 +528,8 @@ MAIN () {
 ###########################################################
 
 SET_BOSH_ENV ${FOUNDATION}
-CHECK_BOSH_CF
+CHECK_CF_LOGIN
+CHECK_BOSH_LOGIN
 
 echo "Collecting routes info: "
 echo
