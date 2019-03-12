@@ -26,8 +26,10 @@ then
 	  then	
 		echo "Enter foundation alias: "
 		read -e foundation
+		: ${foundation:?required}
 		echo "Enter Opsmanager fqdn hostname: "
 		read -e opsman
+		: ${opsman:?required}
 		echo "# Foundation	Opsman_domain" >> ${CONFIG}
 		echo "$foundation	$opsman" >> ${CONFIG}
 		break
@@ -52,6 +54,7 @@ then
 else
 	FOUNDATION=$1
 fi
+: ${FOUNDATION:?required}
 TMP_DIR="/tmp/${FOUNDATION}"
 MAN_DIR="${TMP_DIR}/manifests"
 
@@ -81,6 +84,7 @@ then
 		foundation=${FOUNDATION}
                 echo "Enter Opsmanager fqdn hostname: "
                 read -e opsman
+		: ${opsman:?required}
                 echo "$foundation       $opsman" >> ${CONFIG}
 		OPSMAN=`grep -w $FOUNDATION $CONFIG | awk '{print $2}'`
 		break
@@ -273,6 +277,10 @@ FIND_APP() {
 	echo ""
 	echo "Enter the apps name like: "
 	read -e app
+	if [ -s ${app} ]
+	then
+		break
+	fi
 	if [ -f ${TMP_DIR}/all_routes ]
 	then
 		if [ `grep ${app} ${TMP_DIR}/all_routes | wc -l` -eq 0 ]
@@ -312,6 +320,10 @@ INSTANCES_INFO () {
         echo ""
         echo "Enter the app name: "
         read -e app
+        if [ -s ${app} ]
+        then
+                break
+        fi
         APP=`echo $app | awk -F. '{print $1}'`
         ${SCRIPT_DIR}/cfmenu/cf-instances ${APP}
 	echo
@@ -322,6 +334,10 @@ APP_INFO(){
         echo ""
         echo "Enter the app name: "
         read -e app
+        if [ -s ${app} ]
+        then
+                break
+        fi
 	APP=`echo $app | awk -F. '{print $1}'`
         ${SCRIPT_DIR}/cfmenu/app_info ${APP} > ${TEMP_DIR}/app_info
         cat ${TEMP_DIR}/app_info
@@ -358,6 +374,10 @@ RABBIT_VHOST() {
         echo ""
         echo "Enter the vhost GUID: "
         read -e vhost
+        if [ -s ${vhost} ]
+        then
+                break
+        fi
 	${SCRIPT_DIR}/cfmenu/rabbitmq_vhost ${vhost} > ${TEMP_DIR}/rabbit_queues
 	cat ${TEMP_DIR}/rabbit_queues
 	echo ""
@@ -385,6 +405,10 @@ ORG_INFO() {
         echo ""
         echo "Enter the Org Name: "
         read -e org
+        if [ -s ${org} ]
+        then
+                break
+        fi
         ${SCRIPT_DIR}/cfmenu/org_info ${org} > ${TEMP_DIR}/org_info
         cat ${TEMP_DIR}/org_info
         echo ""
@@ -395,8 +419,16 @@ SPACE_INFO () {
         echo ""
         echo "Enter the Org Name: "
         read -e org
+        if [ -s ${org} ]
+        then
+                break
+        fi
         echo "Enter the Space Name: "
         read -e space
+        if [ -s ${space} ]
+        then
+                break
+        fi
 	${SCRIPT_DIR}/cfmenu/space_info ${org} ${space} > ${TEMP_DIR}/space_info
 	cat ${TEMP_DIR}/space_info 
         echo ""
@@ -424,6 +456,10 @@ DIEGO_INFO() {
 	echo ""
 	echo "Enter the Diego Cell IP or Name: "
 	read -e diego 
+        if [ -s ${diego} ]
+        then
+                break
+        fi
 	${SCRIPT_DIR}/cfmenu/diegocell_info $FOUNDATION ${diego}
 	echo ""
 	MAIN
@@ -432,6 +468,10 @@ DIEGO_INFO() {
 FIND_CONTAINER () {
 	echo "Enter the container GUID: "
 	read -e container
+        if [ -s ${container} ]
+        then
+                break
+        fi
 	${SCRIPT_DIR}/cfmenu/find_container $FOUNDATION ${container}
 	echo ""
 	MAIN
@@ -468,8 +508,22 @@ SET_MAX_IN_FLIGHT () {
   fi
 	echo "Enter the job name: "
 	read -e job
+        if [ -s ${job} ]
+        then
+                break
+	else
+		if [ `grep -w ${job} ${TMP_DIR}/cf-max-in-flights | wc -l` -eq 0 ]
+		then
+			echo "No job found. Please try again..."
+			break
+		fi
+        fi
 	echo "Enter number: "
 	read -e num
+        if [ -s ${num} ]
+        then
+                break
+        fi
 	JOB=`grep -w ${job} ${TMP_DIR}/cf-max-in-flights | awk -F'"' '{print $2}'`
 	DATA=`echo "{\"max_in_flight\":{\"${JOB}\": ${num}}}"`
 	curl -s "https://$OPSMAN/api/v0/staged/products/${DEPLOYMENT}/max_in_flight" -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "${DATA}"
@@ -483,6 +537,16 @@ DOWNLOAD_LOGS () {
 	echo
 	echo "Enter Deployment: "
 	read -e deployment
+        if [ -s ${deployment} ]
+        then
+                break
+	else
+		if [ `grep -w ${deployment} ${TMP_DIR}/foundation.out | wc -l` -eq 0 ]
+		then
+			echo "No deployment found. Please try again..."
+			break
+		fi
+        fi
 	echo
 	echo "Choose instance: "
 	bosh -e ${FOUNDATION} -d ${deployment} vms 
@@ -490,6 +554,16 @@ DOWNLOAD_LOGS () {
 	echo
 	echo "Enter Instance: "
 	read -e instance
+        if [ -s ${instance} ]
+        then
+                break
+        else
+                if [ `grep -w ${instance} ${TMP_DIR}/foundation.out | wc -l` -eq 0 ]
+                then
+                        echo "No instance found. Please try again..."
+                        break
+                fi
+        fi
 	bosh -e ${FOUNDATION} -d ${deployment} logs -q ${instance} --dir ${TMP_DIR}
 	echo
 	echo "Logs for ${instance} dowloaded and is available at ${TMP_DIR}"
