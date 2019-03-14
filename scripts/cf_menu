@@ -549,7 +549,7 @@ DOWNLOAD_LOGS () {
         fi
 	echo
 	echo "Choose instance: "
-	bosh -e ${FOUNDATION} -d ${deployment} vms 
+	bosh -e ${FOUNDATION} -d ${deployment} vms | tee ${TMP_DIR}/${deployment}-instances.out
 	echo
 	echo
 	echo "Enter Instance: "
@@ -558,7 +558,7 @@ DOWNLOAD_LOGS () {
         then
                 break
         else
-                if [ `grep -w ${instance} ${TMP_DIR}/foundation.out | wc -l` -eq 0 ]
+                if [ `grep -w ${instance} ${TMP_DIR}/${deployment}-instances.out | wc -l` -eq 0 ]
                 then
                         echo "No instance found. Please try again..."
                         break
