@@ -330,6 +330,27 @@ INSTANCES_INFO () {
 	SHOW_ALL_APPS
 }
 
+APP_ROUTES() {
+        echo ""
+        echo "Enter the FQDN app name: "
+        read -e app
+	APP=`echo $app | awk -F. '{print $1}'`
+	if [[ `echo $app | grep -o '.com' | wc -l` -eq 0 ]]
+	then
+		echo "Please enter the FQDN app name like <willitconnect.apps.px-prd01.cf.t-mobile.com>"
+		break 
+	else
+		JQ="jq -r '.\"$app\"'"
+		echo "cat ${TMP_DIR}/all_routes | $JQ" > ${TEMP_DIR}/$app
+		chmod +x ${TEMP_DIR}/$app
+		sh ${TEMP_DIR}/${app} > ${TEMP_DIR}/${app}.out
+		echo "Router info for $app as containers IP with port:"
+		cat ${TEMP_DIR}/${app}.out | jq .[] | jq -r '.|(.address)' 
+		echo ""
+	fi
+	SHOW_ALL_APPS
+} #APP_ROUTES
+
 APP_INFO(){
         echo ""
         echo "Enter the app name: "
@@ -353,12 +374,14 @@ SHOW_ALL_APPS() {
 	printf "\n\n\t\t1) Find Apps (doesnot have to be accurate for this search)"
 	printf "\n\n\t\t2) Instances Info"
 	printf "\n\n\t\t3) App Info"
-	printf "\n\nSelect an Option [1-3,b,q]: \n"
+	printf "\n\n\t\t4) App Routes Info"
+	printf "\n\nSelect an Option [1-4,b,q]: \n"
 	read -e REPLY
 	case $REPLY in
 		1) FIND_APP ;;
 		2) INSTANCES_INFO ;;
 		3) APP_INFO ;;
+		4) APP_ROUTES ;;
 		b) MAIN ;;
 		q) printf "Exiting...\n" ; rm -rf ${TEMP_DIR}; exit 0 ;;
 	esac
