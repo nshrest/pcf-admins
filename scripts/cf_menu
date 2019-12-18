@@ -69,7 +69,7 @@ fi
 
 OPSMAN=`grep -w $FOUNDATION $CONFIG | awk '{print $2}'`
 
-if [ -s $OPSMAN ]
+if [[ -s $OPSMAN ]]
 then
 	echo
         echo "Config has no info on $FOUNDATION"
@@ -143,7 +143,7 @@ then
         OPSMAN_CLIENT_ID=
         OPSMAN_CLIENT_SECRET=
         OPS_MGR_USR=admin
-        om -t https://$OPSMAN --client-id "${OPSMAN_CLIENT_ID}"  --client-secret "${OPSMAN_CLIENT_SECRET}" -u "$OPS_MGR_USR"  -p "$password" bosh-env > ${TEMP_DIR}/bosh-env
+        om-linux -t https://$OPSMAN --client-id "${OPSMAN_CLIENT_ID}"  --client-secret "${OPSMAN_CLIENT_SECRET}" -u "$OPS_MGR_USR"  -p "$password" bosh-env > ${TEMP_DIR}/bosh-env
         source ${TEMP_DIR}/bosh-env
         if [ `grep -w ${FOUNDATION} ${TARGET} | wc -l` -eq 0 ]
         then

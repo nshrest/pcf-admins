@@ -25,7 +25,7 @@ then
 fi
 
 # set bosh deployment
-CF_DEPLOYMENT=`curl -s -k http://main-metadata.apps.px-prd01.cf.t-mobile.com/foundations.json  | jq  '.foundations[]' | jq --arg foundation "$FOUNDATION" '.|select (.foundry==$foundation) | .installed_products' | jq -r '.[]|select (.type=="cf") | .installation_name'`
+CF_DEPLOYMENT=`curl -s -k http://main-metadata.apps.px-prd03a.cf.t-mobile.com/foundations.json  | jq  '.foundations[]' | jq --arg foundation "$FOUNDATION" '.|select (.foundry==$foundation) | .installed_products' | jq -r '.[]|select (.type=="cf") | .installation_name'`
 
 bosh -e $FOUNDATION -d ${CF_DEPLOYMENT} instances | grep diego_cell > ${TEMP_DIR}/all_diego_cells
 
